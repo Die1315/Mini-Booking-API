@@ -1,4 +1,4 @@
-from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.models import User
 from django.db import models
 from django.utils import timezone
 
@@ -19,6 +19,8 @@ class Booking(models.Model):
     temperature = models.DecimalField(max_digits=5, decimal_places=2)
     wind_speed = models.DecimalField(max_digits=5, decimal_places=2)
 
+    creator = models.ForeignKey(User, on_delete=models.CASCADE)
+
     def __str__(self):
         return f"{self.date_time} - {self.farm_name}"
 
@@ -37,9 +39,3 @@ class Notes(models.Model):
         return (
             f"{self.booking.farm_name} - {self.created_at.strftime('%Y-%m-%d %H:%M:%S')}" # noqa
             )
-
-class CustomUser(AbstractUser):
-    """
-    Custom user model.
-    """
-    pass

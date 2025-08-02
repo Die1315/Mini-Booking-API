@@ -1,0 +1,71 @@
+name: GitHub Actions CI
+
+run-name: ${{ github.event.head_commit.message }} ${{ github.actor }}
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: testdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DEBUG: false
+      SECRET_KEY: ${{ secrets.SECRET_KEY }}
+      DB_NAME: testdb
+      DB_USER: testuser
+      DB_PASSWORD: testpass
+      DB_HOST: localhost
+      DB_PORT: 5432
+      
+
+    steps:
+      - name: Start CI workflow
+        run: |
+          echo "Starting CI workflow"
+      - name: Set up Python
+        run: |
+          echo "Setting up Python"
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.13'
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+      - name: Run migrations
+        run: |
+          echo "Running migrations"
+          python manage.py migrate
+      - name: Run tests
+        run: |
+          echo "Running tests"
+          pytest
+      - name: Run flake8
+        run: |
+          echo "Running flake8"
+          flake8
+      - name: Run isort
+        run: |
+          echo "Running isort"
+          isort . --check-only --diff

@@ -1,14 +1,21 @@
 from datetime import datetime, timedelta
 
 import requests
+
+from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
+from allauth.socialaccount.providers.oauth2.client import OAuth2Client
+from dj_rest_auth.registration.views import SocialLoginView
 from django.conf import settings
+from django.shortcuts import render
 from requests import Request
 from rest_framework import status, viewsets
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.authtoken.models import Token
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from .models import Booking
-from .serializers import BookingSerializer
+from .serializers import BookingSerializer, LoginSerializer, RegisterSerializer
 
 
 class BookingViewSet(viewsets.ModelViewSet):
@@ -98,12 +105,57 @@ class BookingViewSet(viewsets.ModelViewSet):
 
         serializer.is_valid(raise_exception=True)
 
-        if 'date_time' in serializer.validated_data or 'latitude' in serializer.validated_data or 'longitude' in serializer.validated_data:
+        if (
+            'date_time' in serializer.validated_data or
+            'latitude' in serializer.validated_data or
+            'longitude' in serializer.validated_data
+        ):
             self._fetch_weather(serializer.validated_data)
 
         self.perform_update(serializer)
 
         if getattr(instance, '_prefetched_objects_cache', None):
             instance._prefetched_objects_cache = {}
-            
+
         return Response(serializer.data)
+
+# Simple authentication
+
+
+class LoginView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = LoginSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.validated_data['user']
+            token, created = Token.objects.get_or_create(user=user)
+            return Response({
+                'token': token.key,
+                'user': serializer.data
+            }, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class RegisterView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = RegisterSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class GoogleLogin(SocialLoginView):
+    adapter_class = GoogleOAuth2Adapter
+    client_class = OAuth2Client
+    callback_url = "http://localhost:8000/google/callback/"
+
+
+def google_callback(request):
+    code = request.GET.get('code')
+    if code:
+        return render(request, 'callback.html', {'code': code})
+    return render(request, 'callback.html', {'code': 'Code not found.'})
