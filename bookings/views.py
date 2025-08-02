@@ -7,7 +7,7 @@ from dj_rest_auth.registration.views import SocialLoginView
 from django.conf import settings
 from django.shortcuts import render
 from requests import Request
-from rest_framework import status, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.authtoken.models import Token
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -38,7 +38,7 @@ class BookingViewSet(viewsets.ModelViewSet):
 
     def _fetch_weather(self, serializer_data: Request) -> Response:
         """
-        Método de utilidad para obtener el clima y actualizar los datos del serializador.
+        Utility method to fetch weather data and update serializer data.
         """
         latitude = serializer_data.get('latitude')
         longitude = serializer_data.get('longitude')
@@ -74,7 +74,9 @@ class BookingViewSet(viewsets.ModelViewSet):
             serializer_data['wind_speed'] = wind_speed
 
         except requests.RequestException as e:
-            print(f"Error fetching weather data: {e}")
+            raise serializers.ValidationError(
+                f'Error fetching weather data: {e}'
+            )
 
         return serializer_data
 
@@ -113,14 +115,10 @@ class BookingViewSet(viewsets.ModelViewSet):
 
         self.perform_update(serializer)
 
-        if getattr(instance, '_prefetched_objects_cache', None):
-            instance._prefetched_objects_cache = {}
-
         return Response(serializer.data)
 
+
 # Simple authentication
-
-
 class LoginView(APIView):
     permission_classes = [AllowAny]
 

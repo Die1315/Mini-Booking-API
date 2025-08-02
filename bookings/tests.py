@@ -518,10 +518,26 @@ class NotesTests(TestCase):
         self.assertIn('Test note 1', note_contents)
         self.assertIn('Test note 2', note_contents)
 
-    def test_create_note_via_booking_update(self):
+    @patch('requests.get')
+    @patch('bookings.serializers.requests.get')
+    def test_create_note_via_booking_update(self, mock_holidays_get, mock_weather_get):
         """Test creating a note by updating the booking with new note data"""
-        # Since there's no direct note endpoint, we test that notes are properly
-        # handled in the booking serializer
+        # Mock API responses using side_effect to differentiate between APIs
+        def mock_requests_get(url):
+            mock_response = Mock()
+            if 'PublicHolidays' in url:
+                # Public holidays API response
+                mock_response.json.return_value = []
+                mock_response.raise_for_status.return_value = None
+            else:
+                # Weather API response
+                mock_response.json.return_value = {'hourly': {}}
+                mock_response.raise_for_status.return_value = None
+            return mock_response
+        
+        mock_weather_get.side_effect = mock_requests_get
+        mock_holidays_get.side_effect = mock_requests_get
+        
         url = reverse('booking-detail', kwargs={'pk': self.booking.id})
         
         # Get current booking data
@@ -530,39 +546,261 @@ class NotesTests(TestCase):
         
         # Verify current notes
         self.assertEqual(len(response.data['notes']), 2)
-
-    @patch('requests.get')
-    @patch('bookings.serializers.requests.get')
-    def test_notes_are_read_only(self, mock_holidays_get, mock_weather_get):
-        """Test that notes field is read-only in the API"""
-        # Mock API responses for the update operation
-        mock_weather_response = Mock()
-        mock_weather_response.json.return_value = {'hourly': {}}
-        mock_weather_get.return_value = mock_weather_response
         
-        mock_holidays_response = Mock()
-        mock_holidays_response.json.return_value = []
-        mock_holidays_get.return_value = mock_holidays_response
-        
-        url = reverse('booking-detail', kwargs={'pk': self.booking.id})
-        
-        # Try to update booking with notes data (should be ignored)
+        # Update booking with new notes
         update_data = {
             'farm_name': 'Updated Farm',
             'notes': [
-                {'content': 'New note that should not be created'}
+                {'content': 'New note 1'},
+                {'content': 'New note 2'},
+                {'content': 'New note 3'}
             ]
         }
         
-        response = self.client.patch(url, update_data)
+        response = self.client.patch(url, update_data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+
+        self.assertEqual(len(response.data['notes']), 3)
+        note_contents = [note['content'] for note in response.data['notes']]
+        self.assertIn('New note 1', note_contents)
+        self.assertIn('New note 2', note_contents)
+        self.assertIn('New note 3', note_contents)
+
+    @patch('requests.get')
+    @patch('bookings.serializers.requests.get')
+    def test_notes_are_writable(self, mock_holidays_get, mock_weather_get):
+        """Test that notes field is writable in the API"""
+        # Mock API responses using side_effect to differentiate between APIs
+        def mock_requests_get(url):
+            mock_response = Mock()
+            if 'PublicHolidays' in url:
+                # Public holidays API response
+                mock_response.json.return_value = []
+                mock_response.raise_for_status.return_value = None
+            else:
+                # Weather API response
+                mock_response.json.return_value = {'hourly': {}}
+                mock_response.raise_for_status.return_value = None
+            return mock_response
+        
+        mock_weather_get.side_effect = mock_requests_get
+        mock_holidays_get.side_effect = mock_requests_get
+        
+        url = reverse('booking-detail', kwargs={'pk': self.booking.id})
+        
+        # Update booking with notes data (should work now)
+        update_data = {
+            'farm_name': 'Updated Farm',
+            'notes': [
+                {'content': 'New note that should be created'}
+            ]
+        }
+        
+        response = self.client.patch(url, update_data, format='json')
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['farm_name'], 'Updated Farm')
         
-        # Notes should remain unchanged
+        # Notes should be updated
+        self.assertEqual(len(response.data['notes']), 1)
+        note_contents = [note['content'] for note in response.data['notes']]
+        self.assertIn('New note that should be created', note_contents)
+
+    @patch('requests.get')
+    @patch('bookings.serializers.requests.get')
+    def test_remove_all_notes(self, mock_holidays_get, mock_weather_get):
+        """Test removing all notes from a booking"""
+        # Mock API responses using side_effect to differentiate between APIs
+        def mock_requests_get(url):
+            mock_response = Mock()
+            if 'PublicHolidays' in url:
+                # Public holidays API response
+                mock_response.json.return_value = []
+                mock_response.raise_for_status.return_value = None
+            else:
+                # Weather API response
+                mock_response.json.return_value = {'hourly': {}}
+                mock_response.raise_for_status.return_value = None
+            return mock_response
+        
+        mock_weather_get.side_effect = mock_requests_get
+        mock_holidays_get.side_effect = mock_requests_get
+        
+        url = reverse('booking-detail', kwargs={'pk': self.booking.id})
+        
+        # Update booking with empty notes array
+        update_data = {
+            'notes': []
+        }
+        
+        response = self.client.patch(url, update_data, format='json')
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        # Notes should be removed
+        self.assertEqual(len(response.data['notes']), 0)
+
+    @patch('requests.get')
+    @patch('bookings.serializers.requests.get')
+    def test_create_booking_with_notes(self, mock_holidays_get, mock_weather_get):
+        """Test creating a booking with notes in the same request"""
+        # Mock API responses using side_effect to differentiate between APIs
+        def mock_requests_get(url):
+            mock_response = Mock()
+            if 'PublicHolidays' in url:
+                # Public holidays API response
+                mock_response.json.return_value = []
+                mock_response.raise_for_status.return_value = None
+            else:
+                # Weather API response - need to match the exact time format expected by the view
+                booking_datetime = timezone.now() + timedelta(days=7)
+                # Round to nearest hour as done in _fetch_weather
+                if booking_datetime.minute > 30:
+                    booking_datetime += timedelta(hours=1)
+                booking_datetime = booking_datetime.replace(
+                    minute=0, second=0, microsecond=0
+                )
+                
+                mock_response.json.return_value = {
+                    'hourly': {
+                        'time': [booking_datetime.strftime('%Y-%m-%dT%H:%M')],
+                        'temperature_2m': [22.5],
+                        'windspeed_10m': [15.2],
+                    }
+                }
+                mock_response.raise_for_status.return_value = None
+            return mock_response
+        
+        mock_weather_get.side_effect = mock_requests_get
+        mock_holidays_get.side_effect = mock_requests_get
+        
+        url = reverse('booking-list')
+        
+        # Create booking with notes
+        booking_data = {
+            'date_time': (timezone.now() + timedelta(days=7)).isoformat(),
+            'duration': 60,
+            'farm_name': 'Test Farm with Notes',
+            'inspector_name': 'Test Inspector',
+            'latitude': -36.8485,
+            'longitude': 174.7633,
+            'notes': [
+                {'content': 'Initial inspection note'},
+                {'content': 'Equipment check required'}
+            ]
+        }
+        
+        response = self.client.post(url, booking_data, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(len(response.data['notes']), 2)
         note_contents = [note['content'] for note in response.data['notes']]
-        self.assertNotIn('New note that should not be created', note_contents)
+        self.assertIn('Initial inspection note', note_contents)
+        self.assertIn('Equipment check required', note_contents)
+
+    @patch('requests.get')
+    @patch('bookings.serializers.requests.get')
+    def test_create_booking_without_notes(self, mock_holidays_get, mock_weather_get):
+        """Test creating a booking without notes"""
+        # Mock API responses using side_effect to differentiate between APIs
+        def mock_requests_get(url):
+            mock_response = Mock()
+            if 'PublicHolidays' in url:
+                # Public holidays API response
+                mock_response.json.return_value = []
+                mock_response.raise_for_status.return_value = None
+            else:
+                # Weather API response - need to match the exact time format expected by the view
+                booking_datetime = timezone.now() + timedelta(days=7)
+                # Round to nearest hour as done in _fetch_weather
+                if booking_datetime.minute > 30:
+                    booking_datetime += timedelta(hours=1)
+                booking_datetime = booking_datetime.replace(
+                    minute=0, second=0, microsecond=0
+                )
+                
+                mock_response.json.return_value = {
+                    'hourly': {
+                        'time': [booking_datetime.strftime('%Y-%m-%dT%H:%M')],
+                        'temperature_2m': [22.5],
+                        'windspeed_10m': [15.2],
+                    }
+                }
+                mock_response.raise_for_status.return_value = None
+            return mock_response
+        
+        mock_weather_get.side_effect = mock_requests_get
+        mock_holidays_get.side_effect = mock_requests_get
+        
+        url = reverse('booking-list')
+        
+        # Create booking without notes
+        booking_data = {
+            'date_time': (timezone.now() + timedelta(days=7)).isoformat(),
+            'duration': 60,
+            'farm_name': 'Test Farm without Notes',
+            'inspector_name': 'Test Inspector',
+            'latitude': -36.8485,
+            'longitude': 174.7633
+        }
+        
+        response = self.client.post(url, booking_data, format='json')
+        
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(len(response.data['notes']), 0)
+
+    @patch('requests.get')
+    @patch('bookings.serializers.requests.get')
+    def test_create_booking_with_empty_notes(self, mock_holidays_get, mock_weather_get):
+        """Test creating a booking with empty notes array"""
+        # Mock API responses using side_effect to differentiate between APIs
+        def mock_requests_get(url):
+            mock_response = Mock()
+            if 'PublicHolidays' in url:
+                # Public holidays API response
+                mock_response.json.return_value = []
+                mock_response.raise_for_status.return_value = None
+            else:
+                # Weather API response - need to match the exact time format expected by the view
+                booking_datetime = timezone.now() + timedelta(days=7)
+                # Round to nearest hour as done in _fetch_weather
+                if booking_datetime.minute > 30:
+                    booking_datetime += timedelta(hours=1)
+                booking_datetime = booking_datetime.replace(
+                    minute=0, second=0, microsecond=0
+                )
+                
+                mock_response.json.return_value = {
+                    'hourly': {
+                        'time': [booking_datetime.strftime('%Y-%m-%dT%H:%M')],
+                        'temperature_2m': [22.5],
+                        'windspeed_10m': [15.2],
+                    }
+                }
+                mock_response.raise_for_status.return_value = None
+            return mock_response
+        
+        mock_weather_get.side_effect = mock_requests_get
+        mock_holidays_get.side_effect = mock_requests_get
+        
+        url = reverse('booking-list')
+        
+        # Create booking with empty notes array
+        booking_data = {
+            'date_time': (timezone.now() + timedelta(days=7)).isoformat(),
+            'duration': 60,
+            'farm_name': 'Test Farm with Empty Notes',
+            'inspector_name': 'Test Inspector',
+            'latitude': -36.8485,
+            'longitude': 174.7633,
+            'notes': []
+        }
+        
+        response = self.client.post(url, booking_data, format='json')
+        
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(len(response.data['notes']), 0)
 
     def test_notes_deleted_with_booking(self):
         """Test that notes are deleted when their booking is deleted"""
@@ -577,30 +815,6 @@ class NotesTests(TestCase):
         
         # Verify notes are also deleted
         self.assertEqual(Notes.objects.filter(booking_id=self.booking.id).count(), 0)
-
-    def test_update_note_content_directly(self):
-        """Test updating a note's content directly in the database"""
-        # Since notes are read-only in the API, we test direct database updates
-        original_content = self.note1.content
-        new_content = 'Note updated directly'
-        
-        # Update note directly
-        self.note1.content = new_content
-        self.note1.save()
-        
-        # Verify the update
-        self.note1.refresh_from_db()
-        self.assertEqual(self.note1.content, new_content)
-        self.assertNotEqual(self.note1.content, original_content)
-        
-        # Verify it's reflected in the API response
-        url = reverse('booking-detail', kwargs={'pk': self.booking.id})
-        response = self.client.get(url)
-        
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        note_contents = [note['content'] for note in response.data['notes']]
-        self.assertIn(new_content, note_contents)
-        self.assertNotIn(original_content, note_contents)
 
     def test_update_multiple_notes(self):
         """Test updating multiple notes for a booking"""
@@ -645,6 +859,47 @@ class NotesTests(TestCase):
             if note['content'] == 'Note with timestamp'
         )
         
+        self.assertIsNotNone(new_note_data)
+        self.assertIn('created_at', new_note_data)
+
+    @patch('requests.get')
+    @patch('bookings.serializers.requests.get')
+    def test_keep_existing_notes_when_not_provided(self, mock_holidays_get, mock_weather_get):
+        """Test that existing notes are kept when not provided in update"""
+        # Mock API responses using side_effect to differentiate between APIs
+        def mock_requests_get(url):
+            mock_response = Mock()
+            if 'PublicHolidays' in url:
+                # Public holidays API response
+                mock_response.json.return_value = []
+                mock_response.raise_for_status.return_value = None
+            else:
+                # Weather API response
+                mock_response.json.return_value = {'hourly': {}}
+                mock_response.raise_for_status.return_value = None
+            return mock_response
+        
+        mock_weather_get.side_effect = mock_requests_get
+        mock_holidays_get.side_effect = mock_requests_get
+        
+        url = reverse('booking-detail', kwargs={'pk': self.booking.id})
+        
+        # Update booking without providing notes (should keep existing)
+        update_data = {
+            'farm_name': 'Updated Farm Name',
+            'duration': 120
+        }
+        
+        response = self.client.patch(url, update_data)
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['farm_name'], 'Updated Farm Name')
+        
+        # Notes should remain unchanged
+        self.assertEqual(len(response.data['notes']), 2)
+        note_contents = [note['content'] for note in response.data['notes']]
+        self.assertIn(self.note1.content, note_contents)
+        self.assertIn(self.note2.content, note_contents)
 
 
 class BookingFilteringTests(TestCase):
