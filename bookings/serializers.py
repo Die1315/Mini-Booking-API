@@ -74,10 +74,10 @@ class BookingSerializer(serializers.ModelSerializer):
         notes_data = validated_data.pop('notes', [])
         user = self.context['request'].user
         validated_data['creator'] = user
-        
+
         # Create the booking
         booking = super().create(validated_data)
-        
+
         # Create notes for the booking (only if notes_data is not empty)
         if notes_data:
             for note_data in notes_data:
@@ -85,22 +85,22 @@ class BookingSerializer(serializers.ModelSerializer):
                     content=note_data['content'],
                     booking=booking
                 )
-        
+
         return booking
 
     def update(self, instance, validated_data):
         notes_data = validated_data.pop('notes', None)
         user = self.context['request'].user
         validated_data['creator'] = user
-        
+
         # Update the booking
         booking = super().update(instance, validated_data)
-        
+
         # Handle notes update if provided
         if notes_data is not None:
             # Delete existing notes
             booking.notes.all().delete()
-            
+
             # Create new notes (only if notes_data is not empty)
             if notes_data:
                 for note_data in notes_data:
@@ -108,7 +108,7 @@ class BookingSerializer(serializers.ModelSerializer):
                         content=note_data['content'],
                         booking=booking
                     )
-        
+
         return booking
 
 
